@@ -72,6 +72,7 @@ class ImageCropPicker implements ActivityEventListener {
     private static final String E_CANNOT_LAUNCH_CAMERA = "E_CANNOT_LAUNCH_CAMERA";
     private static final String E_ERROR_WHILE_CLEANING_FILES = "E_ERROR_WHILE_CLEANING_FILES";
     private static final String E_LOW_MEMORY_ERROR = "E_LOW_MEMORY_ERROR";
+    private static final String E_LARGE_IMAGE_FILE_ERROR = "E_LARGE_IMAGE_FILE_ERROR";
 
     private static final String E_NO_LIBRARY_PERMISSION_KEY = "E_NO_LIBRARY_PERMISSION";
     private static final String E_NO_LIBRARY_PERMISSION_MSG = "User did not grant library permission.";
@@ -585,7 +586,16 @@ class ImageCropPicker implements ActivityEventListener {
 
     private File createExternalStoragePrivateFile(Context context, Uri uri) throws FileNotFoundException {
         InputStream inputStream = context.getContentResolver().openInputStream(uri);
+        try {
+            assert inputStream != null;
+            if(inputStream.available() >= 50000000) {
+                Log.w("image-crop-picker", "Size greater than 50000000 bytes");
+                resultCollector.notifyProblem(E_LARGE_IMAGE_FILE_ERROR, "Size greater than 50000000 bytes");
+            }
+        } catch (IOException ignored) {
 
+        }
+        //read size of the file from input stream
         String extension = this.getExtension(context, uri);
         File file = new File(context.getExternalCacheDir(), "/temp/" + System.currentTimeMillis() + "." + extension);
         File parentFile = file.getParentFile();
@@ -600,11 +610,16 @@ class ImageCropPicker implements ActivityEventListener {
             // try to copy it in chunks).  Note that if external storage is
             // not currently mounted this will silently fail.
             OutputStream outputStream = new FileOutputStream(file);
-            byte[] data = new byte[inputStream.available()];
-            inputStream.read(data);
-            outputStream.write(data);
-            inputStream.close();
-            outputStream.close();
+            try{
+                byte[] data = new byte[inputStream.available()];
+                inputStream.read(data);
+                outputStream.write(data);
+                inputStream.close();
+                outputStream.close();
+            } catch (OutOfMemoryError ex) {
+                resultCollector.notifyProblem(E_LARGE_IMAGE_FILE_ERROR, ex.getMessage());
+            }
+
         } catch (IOException e) {
             // Unable to create file, likely because external storage is
             // not currently mounted.
