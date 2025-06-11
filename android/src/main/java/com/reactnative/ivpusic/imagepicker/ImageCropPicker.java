@@ -588,7 +588,7 @@ class ImageCropPicker implements ActivityEventListener {
         InputStream inputStream = context.getContentResolver().openInputStream(uri);
         try {
             assert inputStream != null;
-            if(inputStream.available() >= 75000000) {
+            if(inputStream.available() > 75000000) {
                 Log.w("image-crop-picker", "Size greater than 75000000 bytes");
                 resultCollector.notifyProblem(E_LARGE_IMAGE_FILE_ERROR, "Size greater than 75000000 bytes");
             }
