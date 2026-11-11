@@ -29,7 +29,6 @@ import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.PromiseImpl;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
@@ -92,10 +91,11 @@ class ImageCropPicker implements ActivityEventListener {
     private boolean enableRotationGesture = false;
     private boolean disableCropperColorSetters = false;
     private boolean useFrontCamera = false;
+    private boolean cropperStatusBarLight = true;
+    private boolean cropperNavigationBarLight = false;
     private ReadableMap options;
 
     private String cropperActiveWidgetColor = null;
-    private String cropperStatusBarColor = null;
     private String cropperToolbarColor = null;
     private String cropperToolbarTitle = null;
     private String cropperToolbarWidgetColor = null;
@@ -133,7 +133,6 @@ class ImageCropPicker implements ActivityEventListener {
         maxFiles = options.hasKey("maxFiles") ? options.getInt("maxFiles") : maxFiles;
         cropping = options.hasKey("cropping") && options.getBoolean("cropping");
         cropperActiveWidgetColor = options.hasKey("cropperActiveWidgetColor") ? options.getString("cropperActiveWidgetColor") : null;
-        cropperStatusBarColor = options.hasKey("cropperStatusBarColor") ? options.getString("cropperStatusBarColor") : null;
         cropperToolbarColor = options.hasKey("cropperToolbarColor") ? options.getString("cropperToolbarColor") : null;
         cropperToolbarTitle = options.hasKey("cropperToolbarTitle") ? options.getString("cropperToolbarTitle") : null;
         cropperToolbarWidgetColor = options.hasKey("cropperToolbarWidgetColor") ? options.getString("cropperToolbarWidgetColor") : null;
@@ -145,6 +144,8 @@ class ImageCropPicker implements ActivityEventListener {
         enableRotationGesture = options.hasKey("enableRotationGesture") && options.getBoolean("enableRotationGesture");
         disableCropperColorSetters = options.hasKey("disableCropperColorSetters") && options.getBoolean("disableCropperColorSetters");
         useFrontCamera = options.hasKey("useFrontCamera") && options.getBoolean("useFrontCamera");
+        cropperStatusBarLight = options.hasKey("cropperStatusBarLight") ? options.getBoolean("cropperStatusBarLight") : true;
+        cropperNavigationBarLight = options.hasKey("cropperNavigationBarLight") ? options.getBoolean("cropperNavigationBarLight") : false;
         this.options = options;
     }
 
@@ -368,7 +369,7 @@ class ImageCropPicker implements ActivityEventListener {
             }
 
             Intent intent;
-            if (multiple) {
+            if (multiple && maxFiles > 1) {
                 intent = new ActivityResultContracts.PickMultipleVisualMedia(maxFiles).createIntent(activity, builder.build());
             } else {
                 intent = new ActivityResultContracts.PickVisualMedia().createIntent(activity, builder.build());
@@ -472,7 +473,7 @@ class ImageCropPicker implements ActivityEventListener {
 
         String mime = getMimeType(path);
         if (mime != null && mime.startsWith("video/")) {
-            getVideo(activity, path, mime);
+            getVideo(activity, uri, path, mime);
             return null;
         }
 
@@ -488,7 +489,7 @@ class ImageCropPicker implements ActivityEventListener {
 
         String mime = getMimeType(path);
         if (mime != null && mime.startsWith("video/")) {
-            getVideo(activity, path, mime);
+            getVideo(activity, uri, path, mime);
             return;
         }
 
@@ -519,7 +520,35 @@ class ImageCropPicker implements ActivityEventListener {
         }
     }
 
-    private void getVideo(final Activity activity, final String path, final String mime) throws Exception {
+    // MediaStore DATE_TAKEN is the canonical recording timestamp (ms). Preferred over
+    // File.lastModified() (bumped by syncs/copies/edits) for matching iOS PHAsset.creationDate.
+    // Returns Unix seconds as a string to align with the iOS picker's `creationDate` field.
+    private static String getVideoCreationDateSeconds(Activity activity, Uri sourceUri) {
+        if (sourceUri == null) {
+            return null;
+        }
+        try (android.database.Cursor cursor = activity.getContentResolver().query(
+                sourceUri,
+                new String[] { MediaStore.MediaColumns.DATE_TAKEN },
+                null, null, null)) {
+            if (cursor == null || !cursor.moveToFirst()) {
+                return null;
+            }
+            int idx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN);
+            if (idx < 0 || cursor.isNull(idx)) {
+                return null;
+            }
+            long dateTakenMs = cursor.getLong(idx);
+            if (dateTakenMs <= 0) {
+                return null;
+            }
+            return String.valueOf(dateTakenMs / 1000L);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void getVideo(final Activity activity, final Uri sourceUri, final String path, final String mime) throws Exception {
         validateVideo(Uri.parse(path));
         final String compressedVideoPath = getTmpDir(activity) + "/" + UUID.randomUUID().toString() + ".mp4";
 
@@ -530,6 +559,7 @@ class ImageCropPicker implements ActivityEventListener {
                 Bitmap bmp = validateVideo(Uri.fromFile(new File(videoPath)));
                 long modificationDate = new File(videoPath).lastModified();
                 long duration = getVideoDuration(videoPath);
+                String creationDateSeconds = getVideoCreationDateSeconds(activity, sourceUri);
 
                 WritableMap video = new WritableNativeMap();
                 video.putInt("width", bmp.getWidth());
@@ -539,6 +569,9 @@ class ImageCropPicker implements ActivityEventListener {
                 video.putInt("duration", (int) duration);
                 video.putString("path", "file://" + videoPath);
                 video.putString("modificationDate", String.valueOf(modificationDate));
+                if (creationDateSeconds != null) {
+                    video.putString("creationDate", creationDateSeconds);
+                }
 
                 resultCollector.notifySuccess(video);
             } catch (Exception e) {
@@ -719,13 +752,12 @@ class ImageCropPicker implements ActivityEventListener {
             options.setToolbarColor(Color.parseColor(cropperToolbarColor));
         }
 
-        if (cropperStatusBarColor != null) {
-            options.setStatusBarColor(Color.parseColor(cropperStatusBarColor));
-        }
-
         if (cropperToolbarWidgetColor != null) {
             options.setToolbarWidgetColor(Color.parseColor(cropperToolbarWidgetColor));
         }
+
+        options.setStatusBarLight(cropperStatusBarLight);
+        options.setNavigationBarLight(cropperNavigationBarLight);
     }
 
     private void startCropping(final Activity activity, final Uri uri) {

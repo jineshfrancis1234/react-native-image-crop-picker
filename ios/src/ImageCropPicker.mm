@@ -8,6 +8,7 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 
 #import "ImageCropPicker.h"
+#import <React/RCTUtils.h>
 #ifdef RCT_NEW_ARCH_ENABLED
 #import <RNCImageCropPickerSpec/RNCImageCropPickerSpec.h>
 #endif
@@ -128,8 +129,9 @@ RCT_EXPORT_MODULE(RNCImageCropPicker);
 }
 
 - (UIViewController*) getRootVC {
-    UIViewController *root = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
-    while (root.presentedViewController != nil) {
+    UIViewController *root = RCTKeyWindow().rootViewController;
+    while (root.presentedViewController != nil &&
+           !root.presentedViewController.isBeingDismissed) {
         root = root.presentedViewController;
     }
     
@@ -196,6 +198,8 @@ RCT_EXPORT_METHOD(openCamera:(NSDictionary *)options
         [self handleVideo:asset
              withFileName:fileName
       withLocalIdentifier:nil
+         withCreationDate:nil
+     withModificationDate:nil
                completion:^(NSDictionary* video) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (video == nil) {
@@ -420,7 +424,7 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     });
 }
 
-- (void) handleVideo:(AVAsset*)asset withFileName:(NSString*)fileName withLocalIdentifier:(NSString*)localIdentifier completion:(void (^)(NSDictionary* image))completion {
+- (void) handleVideo:(AVAsset*)asset withFileName:(NSString*)fileName withLocalIdentifier:(NSString*)localIdentifier withCreationDate:(NSDate*)creationDate withModificationDate:(NSDate*)modificationDate completion:(void (^)(NSDictionary* image))completion {
     NSURL *sourceURL = [(AVURLAsset *)asset URL];
     
     // create temp file
@@ -455,8 +459,8 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
                                          withDuration:[NSNumber numberWithFloat:milliseconds]
                                              withData:nil
                                              withRect:CGRectNull
-                                     withCreationDate:nil
-                                 withModificationDate:nil
+                                     withCreationDate:creationDate
+                                 withModificationDate:modificationDate
                         ]);
         } else {
             completion(nil);
@@ -479,6 +483,8 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
         [self handleVideo:asset
              withFileName:[forAsset valueForKey:@"filename"]
       withLocalIdentifier:forAsset.localIdentifier
+         withCreationDate:forAsset.creationDate
+     withModificationDate:forAsset.modificationDate
                completion:completion
          ];
     }];
